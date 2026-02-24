@@ -10,21 +10,15 @@
   const refreshUsersBtn = document.getElementById('refresh-users');
   const usersList = document.getElementById('users-list');
 
-  function getPassword() {
-    return localStorage.getItem('dashboardPassword') || '';
-  }
-
-  function setPassword(pw) {
-    localStorage.setItem('dashboardPassword', pw);
-  }
-
-  function clearPassword() {
-    localStorage.removeItem('dashboardPassword');
-  }
+  // Session is now managed via httpOnly cookies - no localStorage needed
+  // The cookie is automatically sent with each request
 
   async function apiFetch(path, options = {}) {
-    const headers = { 'X-Dashboard-Key': getPassword(), ...options.headers };
-    const res = await fetch(path, { ...options, headers });
+    // Include credentials to send cookies with requests
+    const res = await fetch(path, { 
+      ...options, 
+      credentials: 'same-origin',
+    });
     return res;
   }
 
@@ -45,9 +39,11 @@
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ password: pw }),
+        credentials: 'same-origin',
       });
       if (res.ok) {
-        setPassword(pw);
+        // Session cookie is automatically set by the server
+        passwordInput.value = '';
         showScreen('dashboard');
         loadUsers();
       } else {
@@ -61,8 +57,15 @@
   });
 
   // Logout
-  logoutBtn.addEventListener('click', () => {
-    clearPassword();
+  logoutBtn.addEventListener('click', async () => {
+    try {
+      await fetch('/api/logout', { 
+        method: 'POST',
+        credentials: 'same-origin',
+      });
+    } catch {
+      // Ignore errors - still clear local state
+    }
     passwordInput.value = '';
     showScreen('login');
   });
@@ -153,9 +156,9 @@
     return div.innerHTML;
   }
 
-  // Connect Gmail — navigates to OAuth endpoint with dashboard password
+  // Connect Gmail — navigates to OAuth endpoint (session cookie sent automatically)
   window.connectGmail = function (userId) {
-    window.location.href = '/api/auth/gmail?userId=' + encodeURIComponent(userId) + '&key=' + encodeURIComponent(getPassword());
+    window.location.href = '/api/auth/gmail?userId=' + encodeURIComponent(userId);
   };
 
   // Disconnect Gmail
@@ -197,20 +200,14 @@
   // Refresh users
   refreshUsersBtn.addEventListener('click', loadUsers);
 
-  // Auto-login check on page load
+  // Auto-login check on page load (session cookie sent automatically)
   (async function init() {
-    const pw = getPassword();
-    if (!pw) {
-      showScreen('login');
-      return;
-    }
     try {
       const res = await apiFetch('/api/verify-key');
       if (res.ok) {
         showScreen('dashboard');
         loadUsers();
       } else {
-        clearPassword();
         showScreen('login');
       }
     } catch {

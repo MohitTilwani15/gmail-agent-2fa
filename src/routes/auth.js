@@ -1,15 +1,45 @@
 import { Router } from 'express';
 import { google } from 'googleapis';
+import { readFileSync } from 'fs';
+import { resolve, dirname } from 'path';
+import { fileURLToPath } from 'url';
 import { config } from '../config.js';
 import { getUser, updateUserGmailToken } from '../db/email-requests.js';
+import { validateSession } from '../middleware/auth.js';
 
+const __dirname = dirname(fileURLToPath(import.meta.url));
 const router = Router();
 
+// Load HTML template
+const gmailConnectedTemplate = readFileSync(
+  resolve(__dirname, '../templates/gmail-connected.html'),
+  'utf-8'
+);
+
+function renderTemplate(template, variables) {
+  let result = template;
+  for (const [key, value] of Object.entries(variables)) {
+    result = result.replace(new RegExp(`{{${key}}}`, 'g'), escapeHtml(value));
+  }
+  return result;
+}
+
+function escapeHtml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 router.get('/gmail', (req, res) => {
-  // Accept dashboard password from query param (browser redirect can't set headers)
-  const key = req.query.key;
-  if (!key || key !== config.dashboardPassword) {
-    return res.status(401).json({ error: 'Invalid or missing credentials' });
+  // Use session cookie for authentication (no password in URL)
+  const sessionToken = req.cookies?.session;
+  if (!sessionToken || !validateSession(sessionToken)) {
+    return res.status(401).json({ 
+      error: 'Invalid or missing session. Please log in to the dashboard first.' 
+    });
   }
 
   const { userId } = req.query;
@@ -70,31 +100,11 @@ router.get('/callback/google', async (req, res) => {
 
     updateUserGmailToken(userId, tokens.refresh_token, gmailEmail);
 
-    res.send(`
-      <!DOCTYPE html>
-      <html lang="en">
-      <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Gmail Connected</title>
-        <style>
-          body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; background: #f5f5f5; }
-          .card { background: white; padding: 2rem; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); text-align: center; max-width: 400px; }
-          h1 { color: #16a34a; margin-bottom: 0.5rem; }
-          p { margin: 0.5rem 0; }
-          a { color: #2563eb; text-decoration: none; }
-          a:hover { text-decoration: underline; }
-        </style>
-      </head>
-      <body>
-        <div class="card">
-          <h1>Gmail Connected!</h1>
-          <p>Connected as <strong>${gmailEmail}</strong> for user <strong>${userId}</strong>.</p>
-          <p><a href="/">Back to Dashboard</a></p>
-        </div>
-      </body>
-      </html>
-    `);
+    const html = renderTemplate(gmailConnectedTemplate, {
+      email: gmailEmail,
+      userId: userId,
+    });
+    res.send(html);
   } catch (err) {
     console.error('Gmail OAuth callback error:', err);
     res.status(500).send('Failed to exchange authorization code. Please try again.');

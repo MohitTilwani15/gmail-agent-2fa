@@ -1,14 +1,10 @@
 import Database from 'better-sqlite3';
-import { resolve, dirname } from 'path';
-import { fileURLToPath } from 'url';
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const DB_PATH = resolve(__dirname, '../../data.db');
+import { config } from '../config.js';
 
 let db;
 
 export function initDatabase() {
-  db = new Database(DB_PATH);
+  db = new Database(config.db.path);
   db.pragma('journal_mode = WAL');
 
   db.exec(`
