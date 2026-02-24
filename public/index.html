@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gmail Agent Dashboard</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <!-- Login Screen -->
+  <div id="login-screen" class="screen">
+    <div class="card login-card">
+      <h1>Gmail Agent</h1>
+      <p>Enter your password to continue</p>
+      <form id="login-form">
+        <input type="password" id="password-input" placeholder="Password" required>
+        <button type="submit">Login</button>
+      </form>
+      <p id="login-error" class="error" hidden></p>
+    </div>
+  </div>
+
+  <!-- Dashboard Screen -->
+  <div id="dashboard-screen" class="screen" hidden>
+    <header>
+      <h1>Gmail Agent Dashboard</h1>
+      <button id="logout-btn" class="btn-secondary">Logout</button>
+    </header>
+
+    <section class="card">
+      <h2>Register User</h2>
+      <form id="register-form">
+        <div class="form-group">
+          <label for="reg-userId">User ID</label>
+          <input type="text" id="reg-userId" required>
+        </div>
+        <div class="form-group">
+          <label for="reg-botToken">Telegram Bot Token</label>
+          <input type="text" id="reg-botToken" required>
+        </div>
+        <div class="form-group">
+          <label for="reg-chatId">Telegram Chat ID</label>
+          <input type="number" id="reg-chatId" required>
+        </div>
+        <button type="submit">Register</button>
+      </form>
+      <p id="register-msg" hidden></p>
+    </section>
+
+    <section class="card">
+      <h2>Registered Users</h2>
+      <button id="refresh-users" class="btn-secondary">Refresh</button>
+      <div id="users-list">
+        <p class="muted">Loading...</p>
+      </div>
+    </section>
+
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

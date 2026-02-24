@@ -1,0 +1,28 @@
+{
+  "name": "gmail-agent-2fa",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Email approval gateway with Telegram-based human-in-the-loop control",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "auth": "node scripts/gmail-auth.js",
+    "get-thread": "node scripts/get-thread-info.js",
+    "test": "vitest run"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "better-sqlite3": "^12.6.2",
+    "dotenv": "^17.3.1",
+    "express": "^5.2.1",
+    "googleapis": "^171.4.0",
+    "node-telegram-bot-api": "^0.67.0",
+    "uuid": "^13.0.0"
+  },
+  "devDependencies": {
+    "supertest": "^7.2.2",
+    "vitest": "^3.2.4"
+  }
+}
