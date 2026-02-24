@@ -49,4 +49,6 @@ export const config = {
   },
   // Request cleanup config (days to keep resolved requests)
   cleanupDays: parseInt(process.env.CLEANUP_DAYS, 10) || 30,
+  // Session expiry (hours)
+  sessionExpiryHours: parseInt(process.env.SESSION_EXPIRY_HOURS, 10) || 24,
 };

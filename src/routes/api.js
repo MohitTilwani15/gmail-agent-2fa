@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { v4 as uuidv4 } from 'uuid';
-import { requireApiKey, requireDashboard, createSession, destroySession } from '../middleware/auth.js';
+import { requireApiKey, requireDashboard, createSession, destroySession, getSessionMaxAgeMs } from '../middleware/auth.js';
 import { config } from '../config.js';
 import { STATUS } from '../constants.js';
 import { createRequest, getRequest, getUser, getAllUsers, upsertUser, updateUserGmailToken, cleanupOldRequests } from '../db/email-requests.js';
@@ -9,13 +9,15 @@ import { updateTelegramIds } from '../db/email-requests.js';
 
 const router = Router();
 
-// Cookie options for session
-const COOKIE_OPTIONS = {
-  httpOnly: true,
-  secure: process.env.NODE_ENV === 'production',
-  sameSite: 'lax',
-  maxAge: 24 * 60 * 60 * 1000, // 24 hours
-};
+// Cookie options for session (maxAge set dynamically from config)
+function getCookieOptions() {
+  return {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    maxAge: getSessionMaxAgeMs(),
+  };
+}
 
 router.post('/login', (req, res) => {
   const { password } = req.body;
@@ -25,7 +27,7 @@ router.post('/login', (req, res) => {
   
   // Create session and set httpOnly cookie
   const sessionToken = createSession();
-  res.cookie('session', sessionToken, COOKIE_OPTIONS);
+  res.cookie('session', sessionToken, getCookieOptions());
   res.json({ valid: true });
 });
 

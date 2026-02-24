@@ -4,8 +4,10 @@ import { config } from '../config.js';
 // In-memory session store (for production, use Redis or similar)
 const sessions = new Map();
 
-// Session expiry time (24 hours)
-const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
+// Session expiry time (configurable, default 24 hours)
+function getSessionExpiryMs() {
+  return config.sessionExpiryHours * 60 * 60 * 1000;
+}
 
 // Clean up expired sessions periodically
 setInterval(() => {
@@ -21,10 +23,14 @@ export function createSession() {
   const token = crypto.randomBytes(32).toString('hex');
   const session = {
     createdAt: Date.now(),
-    expiresAt: Date.now() + SESSION_EXPIRY_MS,
+    expiresAt: Date.now() + getSessionExpiryMs(),
   };
   sessions.set(token, session);
   return token;
+}
+
+export function getSessionMaxAgeMs() {
+  return getSessionExpiryMs();
 }
 
 export function validateSession(token) {
