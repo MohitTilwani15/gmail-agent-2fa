@@ -25,16 +25,28 @@ export async function registerAllWebhooks() {
   console.log(`Registered webhooks for ${users.length} user(s)`);
 }
 
-export async function sendApprovalMessage(botToken, chatId, emailRequest) {
-  const bot = createBot(botToken);
-  const { id, to_addresses, cc_addresses, subject, body, attachments, thread_id } = emailRequest;
+/**
+ * Format email details for display in Telegram messages.
+ * @param {Object} emailRequest - The email request object
+ * @param {Object} options - Formatting options
+ * @param {boolean} options.includeBcc - Whether to include BCC field (default: false for approval, true for resolved)
+ * @param {string} options.threadPrefix - Prefix for thread indicator
+ * @returns {string} Formatted email details
+ */
+function formatEmailDetails(emailRequest, options = {}) {
+  const { includeBcc = false, threadPrefix = '↩️ Reply in thread' } = options;
+  const { to_addresses, cc_addresses, bcc_addresses, subject, body, attachments, thread_id } = emailRequest;
 
-  let text = thread_id
-    ? `📧 Reply in Thread — Approval Request\n\n`
-    : `📧 Email Approval Request\n\n`;
+  let text = '';
+  if (thread_id) {
+    text += `${threadPrefix}\n`;
+  }
   text += `To: ${to_addresses.join(', ')}\n`;
   if (cc_addresses && cc_addresses.length > 0) {
     text += `CC: ${cc_addresses.join(', ')}\n`;
+  }
+  if (includeBcc && bcc_addresses && bcc_addresses.length > 0) {
+    text += `BCC: ${bcc_addresses.join(', ')}\n`;
   }
   text += `Subject: ${subject}\n\n`;
   text += `Body:\n${body}`;
@@ -43,6 +55,22 @@ export async function sendApprovalMessage(botToken, chatId, emailRequest) {
     const filenames = attachments.map((a) => a.filename).join(', ');
     text += `\n\n📎 Attachments: ${filenames}`;
   }
+
+  return text;
+}
+
+export async function sendApprovalMessage(botToken, chatId, emailRequest) {
+  const bot = createBot(botToken);
+  const { id, thread_id } = emailRequest;
+
+  const header = thread_id
+    ? `📧 Reply in Thread — Approval Request\n\n`
+    : `📧 Email Approval Request\n\n`;
+  
+  const text = header + formatEmailDetails(emailRequest, { 
+    includeBcc: false,
+    threadPrefix: '' // Header already indicates it's a reply
+  });
 
   const keyboard = {
     inline_keyboard: [
@@ -60,59 +88,35 @@ export async function sendApprovalMessage(botToken, chatId, emailRequest) {
   return { messageId: sent.message_id, chatId: sent.chat.id };
 }
 
-function formatEmailDetails(emailRequest) {
-  const { to_addresses, cc_addresses, bcc_addresses, subject, body, attachments, thread_id } = emailRequest;
-
-  let text = '';
-  if (thread_id) {
-    text += `↩️ Reply in thread\n`;
+/**
+ * Helper to build resolved message text
+ */
+function buildResolvedMessage(header, emailRequest, error = null) {
+  let text = header;
+  if (error) {
+    text += `Error: ${error}\n`;
   }
-  text += `To: ${to_addresses.join(', ')}\n`;
-  if (cc_addresses && cc_addresses.length > 0) {
-    text += `CC: ${cc_addresses.join(', ')}\n`;
-  }
-  if (bcc_addresses && bcc_addresses.length > 0) {
-    text += `BCC: ${bcc_addresses.join(', ')}\n`;
-  }
-  text += `Subject: ${subject}\n\n`;
-  text += `Body:\n${body}`;
-
-  if (attachments && attachments.length > 0) {
-    const filenames = attachments.map((a) => a.filename).join(', ');
-    text += `\n\n📎 Attachments: ${filenames}`;
-  }
-
+  text += `Resolved: ${new Date().toISOString()}\n`;
+  text += `─────────────────────\n`;
+  text += formatEmailDetails(emailRequest, { includeBcc: true });
   return text;
 }
 
 export async function editMessageApproved(botToken, chatId, messageId, emailRequest) {
   const bot = createBot(botToken);
-  let text = `✅ APPROVED — Email sent successfully\n`;
-  text += `Resolved: ${new Date().toISOString()}\n`;
-  text += `─────────────────────\n`;
-  text += formatEmailDetails(emailRequest);
-
+  const text = buildResolvedMessage(`✅ APPROVED — Email sent successfully\n`, emailRequest);
   await bot.editMessageText(text, { chat_id: chatId, message_id: messageId });
 }
 
 export async function editMessageDeclined(botToken, chatId, messageId, emailRequest) {
   const bot = createBot(botToken);
-  let text = `❌ DECLINED — Email not sent\n`;
-  text += `Resolved: ${new Date().toISOString()}\n`;
-  text += `─────────────────────\n`;
-  text += formatEmailDetails(emailRequest);
-
+  const text = buildResolvedMessage(`❌ DECLINED — Email not sent\n`, emailRequest);
   await bot.editMessageText(text, { chat_id: chatId, message_id: messageId });
 }
 
 export async function editMessageFailed(botToken, chatId, messageId, emailRequest, error) {
   const bot = createBot(botToken);
-  let text = `⚠️ APPROVED but SEND FAILED\n`;
-  text += `Error: ${error}\n`;
-  text += `Resolved: ${new Date().toISOString()}\n`;
-  text += `─────────────────────\n`;
-  text += formatEmailDetails(emailRequest);
-
+  const text = buildResolvedMessage(`⚠️ APPROVED but SEND FAILED\n`, emailRequest, error);
   await bot.editMessageText(text, { chat_id: chatId, message_id: messageId });
 }
 

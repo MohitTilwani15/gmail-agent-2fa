@@ -18,6 +18,7 @@ vi.mock('../src/config.js', () => ({
   config: {
     apiKey: 'test-api-key',
     dashboardPassword: 'test-dashboard-pw',
+    sessionExpiryHours: 24,
     telegram: { webhookUrl: 'https://example.com', webhookSecret: 'test-secret' },
     gmail: { clientId: 'cid', clientSecret: 'cs', redirectUri: 'http://localhost' },
     port: 3000,
@@ -45,6 +46,7 @@ vi.mock('../src/services/gmail.js', () => ({
 }));
 
 import express from 'express';
+import cookieParser from 'cookie-parser';
 import apiRoutes from '../src/routes/api.js';
 
 let app;
@@ -91,6 +93,7 @@ beforeEach(() => {
 
   app = express();
   app.use(express.json());
+  app.use(cookieParser());
   app.use('/api', apiRoutes);
 });
 

@@ -1,4 +1,6 @@
 import { getDb } from './init.js';
+import { STATUS, RESOLVED_STATUSES } from '../constants.js';
+import { config } from '../config.js';
 
 // --- User CRUD ---
 
@@ -71,9 +73,10 @@ export function getRequest(id) {
 
 export function updateStatus(id, status, errorMessage = null) {
   const db = getDb();
+  const resolvedStatusList = RESOLVED_STATUSES.map(s => `'${s}'`).join(',');
   const stmt = db.prepare(`
     UPDATE email_requests
-    SET status = ?, error_message = ?, resolved_at = CASE WHEN ? IN ('approved','declined','sent','failed') THEN datetime('now') ELSE resolved_at END
+    SET status = ?, error_message = ?, resolved_at = CASE WHEN ? IN (${resolvedStatusList}) THEN datetime('now') ELSE resolved_at END
     WHERE id = ?
   `);
   stmt.run(status, errorMessage, status, id);
@@ -86,4 +89,22 @@ export function updateTelegramIds(id, telegramMessageId, telegramChatId) {
     UPDATE email_requests SET telegram_message_id = ?, telegram_chat_id = ? WHERE id = ?
   `);
   stmt.run(telegramMessageId, telegramChatId, id);
+}
+
+// --- Cleanup ---
+
+/**
+ * Delete resolved email requests older than the configured retention period.
+ * Returns the number of deleted rows.
+ */
+export function cleanupOldRequests() {
+  const db = getDb();
+  const resolvedStatusList = RESOLVED_STATUSES.map(s => `'${s}'`).join(',');
+  const stmt = db.prepare(`
+    DELETE FROM email_requests 
+    WHERE status IN (${resolvedStatusList}) 
+    AND resolved_at < datetime('now', '-' || ? || ' days')
+  `);
+  const result = stmt.run(config.cleanupDays);
+  return result.changes;
 }

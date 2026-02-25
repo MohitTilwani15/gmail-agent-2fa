@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { config } from '../config.js';
+import { STATUS } from '../constants.js';
 import { getRequest, updateStatus, getUser } from '../db/email-requests.js';
 import { sendEmail } from '../services/gmail.js';
 import {
@@ -43,7 +44,7 @@ router.post('/telegram/:userId', async (req, res) => {
     return;
   }
 
-  if (emailRequest.status !== 'pending') {
+  if (emailRequest.status !== STATUS.PENDING) {
     await answerCallbackQuery(botToken, callbackQuery.id, `Already ${emailRequest.status}`);
     return;
   }
@@ -53,26 +54,30 @@ router.post('/telegram/:userId', async (req, res) => {
 
   if (action === 'approve') {
     if (!user.gmail_refresh_token) {
-      updateStatus(requestId, 'failed', 'Gmail not connected for this user');
+      updateStatus(requestId, STATUS.FAILED, 'Gmail not connected for this user');
       await answerCallbackQuery(botToken, callbackQuery.id, 'Gmail not connected');
       await editMessageFailed(botToken, chatId, messageId, emailRequest, 'Gmail not connected for this user');
       return;
     }
 
-    updateStatus(requestId, 'approved');
+    updateStatus(requestId, STATUS.APPROVED);
     await answerCallbackQuery(botToken, callbackQuery.id, 'Approved! Sending email...');
 
     try {
       await sendEmail(emailRequest, user.gmail_refresh_token);
-      updateStatus(requestId, 'sent');
+      updateStatus(requestId, STATUS.SENT);
       await editMessageApproved(botToken, chatId, messageId, emailRequest);
     } catch (err) {
       console.error('Failed to send email:', err);
-      updateStatus(requestId, 'failed', err.message);
-      await editMessageFailed(botToken, chatId, messageId, emailRequest, err.message);
+      // Sanitize error message - don't expose internal details
+      const safeErrorMessage = err.message?.includes('invalid_grant') 
+        ? 'Gmail authorization expired. Please reconnect Gmail.'
+        : 'Failed to send email. Please try again.';
+      updateStatus(requestId, STATUS.FAILED, safeErrorMessage);
+      await editMessageFailed(botToken, chatId, messageId, emailRequest, safeErrorMessage);
     }
   } else if (action === 'decline') {
-    updateStatus(requestId, 'declined');
+    updateStatus(requestId, STATUS.DECLINED);
     await answerCallbackQuery(botToken, callbackQuery.id, 'Declined');
     await editMessageDeclined(botToken, chatId, messageId, emailRequest);
   }

@@ -28,6 +28,7 @@ vi.mock('../src/config.js', () => ({
   config: {
     apiKey: 'test-api-key',
     dashboardPassword: 'test-dashboard-pw',
+    sessionExpiryHours: 24,
     telegram: { webhookUrl: 'https://example.com', webhookSecret: 'test-secret' },
     gmail: { clientId: 'cid', clientSecret: 'cs', redirectUri: 'http://localhost' },
     port: 3000,
@@ -244,7 +245,7 @@ describe('POST /webhook/telegram/:userId', () => {
     });
 
     await vi.waitFor(() => {
-      expect(mockEditMessageFailed).toHaveBeenCalledWith('tok-123', 100, 42, expect.anything(), 'SMTP error');
+      expect(mockEditMessageFailed).toHaveBeenCalledWith('tok-123', 100, 42, expect.anything(), 'Failed to send email. Please try again.');
     });
 
     const row = db.prepare('SELECT status FROM email_requests WHERE id = ?').get('req-1');

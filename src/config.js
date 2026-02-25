@@ -1,4 +1,9 @@
 import 'dotenv/config';
+import { resolve, dirname } from 'path';
+import { fileURLToPath } from 'url';
+import crypto from 'crypto';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const required = [
   'API_KEY',
@@ -17,9 +22,13 @@ if (missing.length > 0) {
   process.exit(1);
 }
 
+// Generate a random session secret if not provided
+const sessionSecret = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
+
 export const config = {
   apiKey: process.env.API_KEY,
   dashboardPassword: process.env.DASHBOARD_PASSWORD,
+  sessionSecret,
   telegram: {
     webhookUrl: process.env.TELEGRAM_WEBHOOK_URL,
     webhookSecret: process.env.TELEGRAM_WEBHOOK_SECRET,
@@ -29,5 +38,17 @@ export const config = {
     clientSecret: process.env.GMAIL_CLIENT_SECRET,
     redirectUri: process.env.GMAIL_REDIRECT_URI,
   },
+  db: {
+    path: process.env.DB_PATH || resolve(__dirname, '../data.db'),
+  },
   port: parseInt(process.env.PORT, 10) || 3000,
+  // Rate limiting config
+  rateLimit: {
+    windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS, 10) || 60000, // 1 minute
+    maxRequests: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS, 10) || 100,
+  },
+  // Request cleanup config (days to keep resolved requests)
+  cleanupDays: parseInt(process.env.CLEANUP_DAYS, 10) || 30,
+  // Session expiry (hours)
+  sessionExpiryHours: parseInt(process.env.SESSION_EXPIRY_HOURS, 10) || 24,
 };
