@@ -143,16 +143,14 @@ router.get('/prompt/:userId', requireDashboard, (req, res) => {
   const baseUrl = req.protocol + '://' + req.get('host');
   const apiKey = config.apiKey;
 
-  const prompt = `Remember the following permanently. This is the Gmail Agent API you have access to for sending emails on my behalf.
+  const prompt = `You have access to a Gmail API that sends emails on my behalf.
 
-## Gmail Agent API
+## Gmail API
 
 Base URL: ${baseUrl}
-Authentication: All API requests require the header X-API-Key: ${apiKey}
+API Key: ${apiKey}
 
-### Endpoints you can use:
-
-**1. Send an email (requires my approval via Telegram)**
+### Send Email
 
 POST ${baseUrl}/api/send-email
 Headers:
@@ -165,58 +163,38 @@ Body:
   "to": ["recipient@example.com"],
   "subject": "string",
   "body": "string",
-  "cc": ["email@example.com"],     // optional
-  "bcc": ["email@example.com"],    // optional
-  "isHtml": false,                  // optional - set true if body is HTML
-  "attachments": [                  // optional
+  "cc": ["email@example.com"],          // optional
+  "bcc": ["email@example.com"],         // optional
+  "isHtml": false,                       // optional, set true for HTML body
+  "attachments": [                       // optional
     {
       "filename": "file.txt",
       "base64": "...",
       "contentType": "text/plain"
     }
   ],
-  "threadId": "gmail-thread-id",   // optional - Gmail thread ID for replying in a thread
-  "inReplyTo": "<message-id>",     // optional - Message-ID of the email being replied to
-  "references": ["<msg-id-1>", "<msg-id-2>"]  // optional - chain of Message-IDs for threading
+  "threadId": "gmail-thread-id",        // optional, for replying in a thread
+  "inReplyTo": "<message-id>",          // optional, Message-ID being replied to
+  "references": ["<msg-id-1>"]          // optional, Message-ID chain for threading
 }
 
 Response: { "requestId": "uuid", "status": "pending_approval" }
 
-IMPORTANT: This does NOT send the email immediately. It sends an approval request to my Telegram. The email is only sent after I approve it. If I decline, the email is not sent.
+When replying to a thread, include threadId, inReplyTo, and references together. Prefix the subject with "Re: ".
 
-**2. Check email status**
+### Check Email Status
 
-GET ${baseUrl}/api/email-status/:requestId
+GET ${baseUrl}/api/email-status/\${requestId}
 Headers:
   X-API-Key: ${apiKey}
 
 Response: { "requestId": "uuid", "status": "pending|approved|declined|sent|failed", "createdAt": "...", "resolvedAt": "..." }
 
-Possible statuses:
-- "pending" - waiting for my approval on Telegram
-- "approved" - approved, sending in progress
-- "sent" - email was sent successfully
-- "declined" - I declined the email
-- "failed" - approved but sending failed
+### Usage Rules
 
-### Replying to threads
-
-To reply to an existing email thread, include these optional fields:
-- "threadId": The Gmail thread ID (from the original email)
-- "inReplyTo": The Message-ID header of the email you're replying to
-- "references": Array of Message-ID headers forming the reply chain
-
-All three fields are optional but should be provided together when replying to a thread. The subject should typically start with "Re: " when replying.
-
-### Rules
-
-- Always use userId "${userId}"
-- The "to" field must be an array, even for a single recipient
-- Do not send emails without being asked to
-- After calling send-email, tell me the email is pending my approval on Telegram
-- If I ask you to check if an email was sent, use the email-status endpoint with the requestId
-
-Remember this API configuration permanently and use it whenever I ask you to send an email.`;
+- Always use userId "${userId}" and pass "to" as an array
+- When I ask you to send an email, call the send-email endpoint and tell me the email has been submitted
+- If I ask whether an email was sent, check the status using the requestId`;
 
   res.json({ prompt });
 });
