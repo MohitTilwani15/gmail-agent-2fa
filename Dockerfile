@@ -13,6 +13,7 @@ RUN pnpm install --frozen-lockfile --prod
 
 COPY src ./src
 COPY scripts ./scripts
+COPY public ./public
 
 RUN mkdir -p /app/data
 
