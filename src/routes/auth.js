@@ -139,6 +139,7 @@ router.get('/calendar/:pairId/account/:accountNum', (req, res) => {
     scope: [
       'https://www.googleapis.com/auth/calendar.readonly',
       'https://www.googleapis.com/auth/calendar.events',
+      'https://www.googleapis.com/auth/userinfo.email',
     ],
     state: JSON.stringify({ pairId, accountNum: num }),
   });
@@ -183,7 +184,7 @@ router.get('/callback/calendar', async (req, res) => {
     const { updateSyncPairAccount } = await import('../db/calendar-sync.js');
     updateSyncPairAccount(pairId, accountNum, tokens.refresh_token, email);
 
-    res.send(`<html><body><h2>Calendar account connected!</h2><p>${escapeHtml(email)} connected as Account ${accountNum}.</p><p>You can close this window.</p></body></html>`);
+    res.redirect('/');
   } catch (err) {
     console.error('Calendar OAuth callback error:', err);
     res.status(500).send('Failed to exchange authorization code. Please try again.');

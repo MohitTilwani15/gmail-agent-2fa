@@ -47,6 +47,11 @@ function buildTimeObj(timeStr) {
   return { dateTime: timeStr, timeZone: 'UTC' };
 }
 
+// Simple delay helper for rate limiting
+function delay(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 // Check if an event should be skipped (is a mirror event we created)
 function isMirrorEvent(event, pairId) {
   // Layer 1: Check extended properties
@@ -179,6 +184,25 @@ export async function incrementalSync(pair, sourceCalNum) {
   let pageToken;
   let newSyncToken;
 
+  // If no sync token, establish one without processing existing events
+  if (!currentSyncToken) {
+    console.log(`No sync token for pair ${pair.id} cal ${sourceCalNum}, establishing token...`);
+    let ptk;
+    let token;
+    do {
+      const p = { calendarId: sourceCalId, singleEvents: true, showDeleted: false, timeMin: new Date().toISOString(), maxResults: 250 };
+      if (ptk) p.pageToken = ptk;
+      const r = await sourceClient.events.list(p);
+      ptk = r.data.nextPageToken;
+      token = r.data.nextSyncToken;
+    } while (ptk);
+    if (token) {
+      updateSyncToken(pair.id, sourceCalNum, token);
+      console.log(`Sync token established for pair ${pair.id} cal ${sourceCalNum}`);
+    }
+    return;
+  }
+
   do {
     const params = {
       calendarId: sourceCalId,
@@ -198,19 +222,27 @@ export async function incrementalSync(pair, sourceCalNum) {
       res = await sourceClient.events.list(params);
     } catch (err) {
       if (err.code === 410) {
-        // Sync token expired — do full sync instead
-        console.log(`Sync token expired for pair ${pair.id} cal ${sourceCalNum}, doing full sync`);
-        await fullSync(pair, sourceCalNum);
+        // Sync token expired — re-establish without full sync
+        console.log(`Sync token expired for pair ${pair.id} cal ${sourceCalNum}, re-establishing...`);
+        updateSyncToken(pair.id, sourceCalNum, null);
         return;
       }
       throw err;
     }
 
     const events = res.data.items || [];
-    for (const event of events) {
+    for (let i = 0; i < events.length; i++) {
+      const event = events[i];
       try {
         await processEventChange(event, pair, sourceCalNum, targetClient, targetCalId);
+        if ((i + 1) % 5 === 0) await delay(1000);
       } catch (err) {
+        if (err.code === 429 || (err.message && err.message.includes('Rate Limit')) || (err.message && err.message.includes('Quota exceeded'))) {
+          console.log(`Rate limited during incremental sync for pair ${pair.id}, pausing 15s...`);
+          await delay(15000);
+          i--; // Retry
+          continue;
+        }
         console.error(`Error processing event ${event.id} for pair ${pair.id}:`, err.message);
       }
     }
@@ -250,7 +282,8 @@ export async function fullSync(pair, sourceCalNum) {
     const res = await sourceClient.events.list(params);
     const events = res.data.items || [];
 
-    for (const event of events) {
+    for (let i = 0; i < events.length; i++) {
+      const event = events[i];
       try {
         // Skip mirror events
         if (isMirrorEvent(event, pair.id)) continue;
@@ -270,7 +303,18 @@ export async function fullSync(pair, sourceCalNum) {
           sourceStart: start,
           sourceEnd: end,
         });
+
+        // Throttle: pause every 5 events to stay under rate limits
+        if ((i + 1) % 5 === 0) {
+          await delay(1000);
+        }
       } catch (err) {
+        if (err.code === 429 || (err.message && (err.message.includes('Rate Limit') || err.message.includes('Quota exceeded')))) {
+          console.log(`Rate limited on pair ${pair.id}, pausing 15s...`);
+          await delay(15000);
+          i--; // Retry this event
+          continue;
+        }
         console.error(`Error syncing event ${event.id} for pair ${pair.id}:`, err.message);
       }
     }

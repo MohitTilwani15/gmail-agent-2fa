@@ -106,11 +106,8 @@ router.post('/:pairId/activate', requireDashboard, async (req, res) => {
     // Set up push notification channels
     await setupChannelsForPair(updatedPair);
 
-    // Run initial sync
     const freshPair = getSyncPair(pair.id);
-    await initialSync(freshPair);
-
-    res.json({ ...freshPair, is_active: 1, message: 'Sync activated and initial sync complete' });
+    res.json({ ...freshPair, is_active: 1, message: 'Sync activated. New changes will be synced going forward.' });
   } catch (err) {
     console.error('Error activating sync:', err.message);
     updateSyncPairActive(pair.id, false);
