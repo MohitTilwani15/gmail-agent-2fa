@@ -37,6 +37,10 @@ export const config = {
     clientId: process.env.GMAIL_CLIENT_ID,
     clientSecret: process.env.GMAIL_CLIENT_SECRET,
     redirectUri: process.env.GMAIL_REDIRECT_URI,
+    calendarRedirectUri: process.env.CALENDAR_REDIRECT_URI || (process.env.GMAIL_REDIRECT_URI ? process.env.GMAIL_REDIRECT_URI.replace('/callback/google', '/callback/calendar') : undefined),
+  },
+  calendar: {
+    webhookUrl: process.env.CALENDAR_WEBHOOK_URL || process.env.TELEGRAM_WEBHOOK_URL,
   },
   db: {
     path: process.env.DB_PATH || resolve(__dirname, '../data.db'),

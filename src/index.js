@@ -10,6 +10,9 @@ import { rateLimit } from './middleware/rate-limit.js';
 import apiRoutes from './routes/api.js';
 import authRoutes from './routes/auth.js';
 import webhookRoutes from './routes/webhook.js';
+import calendarSyncRoutes from './routes/calendar-sync.js';
+import calendarWebhookRoutes from './routes/calendar-webhook.js';
+import { registerAllCalendarChannels, renewExpiringChannels } from './services/calendar-channels.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -31,6 +34,8 @@ app.get('/health', (_req, res) => res.json({ status: 'ok' }));
 app.use('/api', apiRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/webhook', webhookRoutes);
+app.use('/api/calendar-sync', calendarSyncRoutes);
+app.use('/webhook', calendarWebhookRoutes);
 
 // Schedule cleanup of old email requests (run daily at midnight)
 function scheduleCleanup() {
@@ -52,6 +57,17 @@ function scheduleCleanup() {
   setTimeout(runCleanup, 5000);
 }
 
+function scheduleChannelRenewal() {
+  // Renew expiring calendar channels every hour
+  setInterval(async () => {
+    try {
+      await renewExpiringChannels();
+    } catch (err) {
+      console.error('Channel renewal error:', err.message);
+    }
+  }, 60 * 60 * 1000);
+}
+
 async function start() {
   initDatabase();
 
@@ -62,7 +78,15 @@ async function start() {
     console.error('The server will start, but Telegram callbacks may not work for existing users.');
   }
 
+  try {
+    await registerAllCalendarChannels();
+  } catch (err) {
+    console.error('Failed to register calendar channels:', err.message);
+    console.error('Calendar sync may not work for existing pairs until channels are renewed.');
+  }
+
   scheduleCleanup();
+  scheduleChannelRenewal();
 
   app.listen(config.port, () => {
     console.log(`Server running on port ${config.port}`);

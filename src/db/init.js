@@ -70,6 +70,43 @@ export function initDatabase() {
     // Column already exists — ignore
   }
 
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS calendar_sync_pairs (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      account1_email TEXT,
+      account1_token TEXT,
+      account1_cal_id TEXT,
+      account2_email TEXT,
+      account2_token TEXT,
+      account2_cal_id TEXT,
+      is_active INTEGER DEFAULT 0,
+      channel1_id TEXT,
+      channel1_expiry TEXT,
+      channel2_id TEXT,
+      channel2_expiry TEXT,
+      sync_token1 TEXT,
+      sync_token2 TEXT,
+      created_at TEXT DEFAULT (datetime('now'))
+    )
+  `);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS synced_events (
+      id TEXT PRIMARY KEY,
+      pair_id TEXT NOT NULL,
+      source_event_id TEXT NOT NULL,
+      source_calendar INTEGER NOT NULL,
+      mirror_event_id TEXT NOT NULL,
+      source_start TEXT,
+      source_end TEXT,
+      created_at TEXT DEFAULT (datetime('now'))
+    )
+  `);
+
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_synced_events_source ON synced_events(pair_id, source_event_id)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_synced_events_mirror ON synced_events(pair_id, mirror_event_id)`);
+
   console.log('Database initialized');
   return db;
 }
