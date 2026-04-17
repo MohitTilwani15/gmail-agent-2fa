@@ -8,7 +8,7 @@ import {
   updateSyncPairActive,
   deleteSyncPair,
 } from '../db/calendar-sync.js';
-import { listCalendars, initialSync } from '../services/calendar.js';
+import { listCalendars, initialSync, removeAllMirrorsForPair } from '../services/calendar.js';
 import { setupChannelsForPair, stopChannelsForPair } from '../services/calendar-channels.js';
 import { deleteSyncedEventsByPair, getSyncedEventsByPair } from '../db/calendar-sync.js';
 
@@ -158,8 +158,19 @@ router.delete('/:pairId', requireDashboard, async (req, res) => {
     return res.status(404).json({ error: 'Sync pair not found' });
   }
 
-  // Stop channels
+  // Stop channels first so webhooks triggered by our own deletions below
+  // are ignored (the channel ids no longer resolve to a pair after this).
   await stopChannelsForPair(pair);
+
+  // Remove every mirror "Busy" event this pair created on either calendar.
+  // Without this, connecting the same calendars again stacks new mirrors on
+  // top of the ones from the deleted pair. Failures shouldn't block the DB
+  // delete — a best-effort attempt is still better than skipping.
+  try {
+    await removeAllMirrorsForPair(pair);
+  } catch (err) {
+    console.error(`Failed to remove mirrors for pair ${pair.id} during delete: ${err.message}`);
+  }
 
   // Delete pair and all synced events
   deleteSyncPair(pair.id);

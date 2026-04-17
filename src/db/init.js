@@ -104,7 +104,24 @@ export function initDatabase() {
     )
   `);
 
-  db.exec(`CREATE INDEX IF NOT EXISTS idx_synced_events_source ON synced_events(pair_id, source_event_id)`);
+  // Migration: remove duplicate (pair_id, source_event_id) rows from older
+  // versions that raced on concurrent webhooks. Keep the oldest row per group.
+  // The NEWER mirror event in the calendar becomes an orphan until the
+  // cleanup scripts (scripts/cleanup-orphan-busy.js) are run.
+  const dedupe = db.prepare(`
+    DELETE FROM synced_events
+    WHERE rowid NOT IN (
+      SELECT MIN(rowid) FROM synced_events GROUP BY pair_id, source_event_id
+    )
+  `).run();
+  if (dedupe.changes > 0) {
+    console.log(`Removed ${dedupe.changes} duplicate synced_events rows during migration`);
+  }
+
+  // Replace the non-unique index with a unique one so the DB itself rejects
+  // a duplicate mapping even if a concurrency bug sneaks past the in-process lock.
+  db.exec(`DROP INDEX IF EXISTS idx_synced_events_source`);
+  db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_synced_events_source ON synced_events(pair_id, source_event_id)`);
   db.exec(`CREATE INDEX IF NOT EXISTS idx_synced_events_mirror ON synced_events(pair_id, mirror_event_id)`);
 
   console.log('Database initialized');

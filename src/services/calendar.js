@@ -7,7 +7,10 @@ import {
   updateSyncedEvent,
   deleteSyncedEvent,
   updateSyncToken,
+  getSyncPair,
+  getSyncedEventsByPair,
 } from '../db/calendar-sync.js';
+import { runSerialized } from './sync-lock.js';
 
 // Create an authenticated Google Calendar client from a refresh token
 export function createCalendarClient(refreshToken) {
@@ -52,12 +55,13 @@ function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-// Check if an event should be skipped (is a mirror event we created)
-function isMirrorEvent(event, pairId) {
-  // Layer 1: Check extended properties
-  const syncPairId = event.extendedProperties?.private?.calSyncPairId;
-  if (syncPairId === pairId) return true;
-  return false;
+// Check if an event should be skipped — any event carrying our sync marker
+// is one we created. We ignore the pair id on the marker on purpose: a mirror
+// left over from a previous pair (e.g., user deleted pair A, then created
+// pair B over the same calendars) must still be skipped rather than re-
+// mirrored as a source event under the new pair.
+function isMirrorEvent(event) {
+  return Boolean(event.extendedProperties?.private?.calSyncPairId);
 }
 
 // Create a "Busy" mirror event on the target calendar
@@ -122,7 +126,7 @@ async function processEventChange(event, pair, sourceCalNum, targetClient, targe
   const pairId = pair.id;
 
   // Loop prevention layer 1: skip mirror events (extended properties)
-  if (isMirrorEvent(event, pairId)) return;
+  if (isMirrorEvent(event)) return;
 
   // Loop prevention layer 2: skip if this event ID is a known mirror
   const asMirror = getSyncedEventByMirror(pairId, event.id);
@@ -158,20 +162,46 @@ async function processEventChange(event, pair, sourceCalNum, targetClient, targe
   } else {
     // New event — create mirror
     const mirror = await createMirrorEvent(targetClient, targetCalId, pairId, event);
-    createSyncedEvent({
-      pairId,
-      sourceEventId: event.id,
-      sourceCalendar: sourceCalNum,
-      mirrorEventId: mirror.id,
-      sourceStart: start,
-      sourceEnd: end,
-    });
+    try {
+      createSyncedEvent({
+        pairId,
+        sourceEventId: event.id,
+        sourceCalendar: sourceCalNum,
+        mirrorEventId: mirror.id,
+        sourceStart: start,
+        sourceEnd: end,
+      });
+    } catch (err) {
+      // Defense in depth: if a concurrent run (different process, or a bug)
+      // already inserted a mapping for this source event, drop the mirror we
+      // just created so we don't leave a duplicate "Busy" on the target.
+      if (err.code === 'SQLITE_CONSTRAINT_UNIQUE') {
+        console.warn(`Duplicate mirror detected for pair ${pairId} source ${event.id} — removing freshly-created mirror ${mirror.id}`);
+        await deleteMirrorEvent(targetClient, targetCalId, mirror.id);
+        return;
+      }
+      throw err;
+    }
   }
 }
 
 // Run incremental sync for one calendar in a pair
 // sourceCalNum is 1 or 2 (which calendar triggered the webhook)
-export async function incrementalSync(pair, sourceCalNum) {
+// Exported entry point: serializes per (pairId, sourceCalNum) so concurrent
+// webhook deliveries can't race in processEventChange and create duplicate
+// mirror events for the same source event.
+export async function incrementalSync(pairOrId, sourceCalNum) {
+  const pairId = typeof pairOrId === 'string' ? pairOrId : pairOrId.id;
+  return runSerialized(`${pairId}:${sourceCalNum}`, async () => {
+    // Refetch inside the lock so a coalesced follow-up picks up the sync
+    // token the previous run just persisted.
+    const pair = getSyncPair(pairId);
+    if (!pair) return;
+    await runIncrementalSync(pair, sourceCalNum);
+  });
+}
+
+async function runIncrementalSync(pair, sourceCalNum) {
   const sourceToken = sourceCalNum === 1 ? pair.account1_token : pair.account2_token;
   const sourceCalId = sourceCalNum === 1 ? pair.account1_cal_id : pair.account2_cal_id;
   const targetToken = sourceCalNum === 1 ? pair.account2_token : pair.account1_token;
@@ -286,7 +316,7 @@ export async function fullSync(pair, sourceCalNum) {
       const event = events[i];
       try {
         // Skip mirror events
-        if (isMirrorEvent(event, pair.id)) continue;
+        if (isMirrorEvent(event)) continue;
         if (getSyncedEventByMirror(pair.id, event.id)) continue;
 
         // Skip if already synced
@@ -334,4 +364,96 @@ export async function initialSync(pair) {
   await fullSync(pair, 1);
   await fullSync(pair, 2);
   console.log(`Initial sync complete for pair ${pair.id}`);
+}
+
+// Iterate every mirror event this pair created on one calendar.
+// If `keepSet` is provided, events whose id is in the set are preserved.
+async function deleteMirrorsOnCalendar(client, calendarId, pairId, keepSet) {
+  let pageToken;
+  let found = 0;
+  let deleted = 0;
+  let failed = 0;
+
+  do {
+    const params = {
+      calendarId,
+      privateExtendedProperty: `calSyncPairId=${pairId}`,
+      maxResults: 100,
+      showDeleted: false,
+    };
+    if (pageToken) params.pageToken = pageToken;
+
+    let res;
+    try {
+      res = await client.events.list(params);
+    } catch (err) {
+      if (err.code === 429 || (err.message && (err.message.includes('Rate Limit') || err.message.includes('Quota exceeded')))) {
+        await delay(15000);
+        continue;
+      }
+      throw err;
+    }
+
+    const events = res.data.items || [];
+    found += events.length;
+
+    for (let i = 0; i < events.length; i++) {
+      const ev = events[i];
+      if (keepSet && keepSet.has(ev.id)) continue;
+
+      try {
+        await client.events.delete({ calendarId, eventId: ev.id });
+        deleted++;
+      } catch (err) {
+        if (err.code === 404 || err.code === 410) {
+          deleted++;
+        } else if (err.code === 429 || (err.message && (err.message.includes('Rate Limit') || err.message.includes('Quota exceeded')))) {
+          await delay(15000);
+          i--;
+          continue;
+        } else {
+          failed++;
+          console.error(`Failed to delete mirror ${ev.id} on ${calendarId}: ${err.message}`);
+        }
+      }
+
+      if ((i + 1) % 3 === 0) await delay(1500);
+    }
+
+    pageToken = res.data.nextPageToken;
+  } while (pageToken);
+
+  return { found, deleted, failed };
+}
+
+// Delete every mirror event we created for this pair from both calendars.
+// Called when a pair is being deleted so reconnects don't see stacked "Busy" placeholders.
+export async function removeAllMirrorsForPair(pair) {
+  const results = { account1: null, account2: null };
+  if (pair.account1_token && pair.account1_cal_id) {
+    const c1 = createCalendarClient(pair.account1_token);
+    results.account1 = await deleteMirrorsOnCalendar(c1, pair.account1_cal_id, pair.id, null);
+  }
+  if (pair.account2_token && pair.account2_cal_id) {
+    const c2 = createCalendarClient(pair.account2_token);
+    results.account2 = await deleteMirrorsOnCalendar(c2, pair.account2_cal_id, pair.id, null);
+  }
+  return results;
+}
+
+// Delete mirror events for this pair that are NOT tracked in the local DB.
+// Cleans up orphans left behind by the historical duplicate-insert race (the
+// newer mirror events whose DB rows were removed by the dedupe migration).
+export async function removeOrphanMirrorsForPair(pair) {
+  const tracked = new Set(getSyncedEventsByPair(pair.id).map(row => row.mirror_event_id));
+  const results = { account1: null, account2: null };
+  if (pair.account1_token && pair.account1_cal_id) {
+    const c1 = createCalendarClient(pair.account1_token);
+    results.account1 = await deleteMirrorsOnCalendar(c1, pair.account1_cal_id, pair.id, tracked);
+  }
+  if (pair.account2_token && pair.account2_cal_id) {
+    const c2 = createCalendarClient(pair.account2_token);
+    results.account2 = await deleteMirrorsOnCalendar(c2, pair.account2_cal_id, pair.id, tracked);
+  }
+  return results;
 }
